@@ -1,0 +1,27 @@
+# Compiled binaries (executables)
+client
+server
+sqltest
+main
+*.out
+*.exe
+
+# Object files and libraries
+*.o
+*.obj
+*.lib
+*.a
+
+# Databases (to avoid pushing the test database to GitHub)
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Editor and IDE folders
+.vscode/
+.idea/
+*.swp
+*.swo
