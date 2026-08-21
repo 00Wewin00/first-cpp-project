@@ -3,6 +3,9 @@ client
 server
 sqltest
 main
+sqltest.cpp
+LICENSE
+README.md
 *.out
 *.exe
 

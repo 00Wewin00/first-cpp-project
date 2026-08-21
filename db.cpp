@@ -1,20 +1,46 @@
 #include <iostream>
+#include <string>
+#include <vector>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include <sqlite3.h>
+#include "db.h"
 using namespace std;
-int main() {
-    sqlite3* db;
-    
-    int rc = sqlite3_open("chat.db", &db);
-    
-    if (rc == 0) {
-        cout << "Baza uspeshno otkryta!\n";
-        const char* sql = "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT);";
-        sqlite3_exec(db, sql, 0, 0, 0);
-        const char* insert_sql = "INSERT INTO users (username, password) VALUES ('ivan', '12345');";
-        sqlite3_exec(db, insert_sql, 0, 0, 0);
-        sqlite3_close(db);
-    } else {
-        cout << "Oshibka: " << rc << "\n";
+struct clientinfo
+{
+    int socet;
+    string username;
+};
+void insert_data(string mesto,string imja,string password) 
+{
+    sqlite3* db = nullptr;
+    // Открываем тестовую базу
+    if (sqlite3_open("test.db", &db) != SQLITE_OK) 
+    {
+        cout << "Ошибка открытия базы!" << endl;
+        return;
     }
-    return 0;
+    
+    string sql = "INSERT OR IGNORE INTO user (username, password) VALUES (?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    int status = 0;
+    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0) == SQLITE_OK) 
+    {
+        sqlite3_bind_text(stmt, 1, imja.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt, 2, password.c_str(), -1, SQLITE_STATIC);
+        sqlite3_step(stmt);
+        // Проверяем, была ли реально добавлена строка
+        if (sqlite3_changes(db) > 0) 
+        {
+            //soedinenie(client_socet, client);
+        } 
+        else 
+        {
+            status = 0; // Ошибка: такой username уже занят
+        }
+    }
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    cout << "[Успех] Данные записаны в колонку: " << mesto << endl;
 }
