@@ -15,32 +15,74 @@
 #include <sstream>
 using namespace std;
 mutex clients_mutex;
-struct clientinfo
+struct ClientInfo
 {
-    int socet;
+    int socket;
     string username;
 };
-void rassylka(const char*buffer,const vector<clientinfo>& client,int socket){
-    lock_guard<mutex> lock(clients_mutex);
-    string sender_name = "Неизвестный";
-        auto it =find_if(client.begin(),client.end(),[socket](const auto& c){
-            return c.socet==socket;
+void w(const string sms,const vector<ClientInfo>& client,int socket,string username)
+{
+    int recipient_socket=-1;
+    vector<ClientInfo> copyclient;
+    string final_sms;
+    {
+        lock_guard<mutex> lock(clients_mutex);
+        copyclient=client;
+    }
+        auto it = find_if(copyclient.begin(),copyclient.end(),[username](const auto& c)
+    {
+        return c.username == username;
+    });
+    if(it!=copyclient.end())
+    {
+        auto it1=find_if(copyclient.begin(),copyclient.end(),[socket](const auto& c)
+        {
+            return c.socket==socket;
         });
-        if(it!=client.end()){
-            sender_name= it ->username;
+        if(it1!=copyclient.end())
+        {
+            string sender_name = it1->username;
+            final_sms = "\"" + sender_name + "\" : " + sms;
         }
+        else 
+        {
+            final_sms="\"Неизвестный\" : " + sms;
+        }
+        final_sms+="\n";
+        recipient_socket = it ->socket;
+        send(recipient_socket,final_sms.c_str(),final_sms.size(),0);
+    }
+}
+
+void broadcast(const char*buffer,const vector<ClientInfo>& client,int socket)
+{
+    vector<ClientInfo> copyclient;
+    string sender_name= "Неизвестный";
+    {lock_guard<mutex> lock(clients_mutex);
+    copyclient=client;
+    }
+    auto it =find_if(copyclient.begin(),copyclient.end(),[socket](const auto& c)
+    {
+        return c.socket==socket;
+    });
+    if(it!=copyclient.end())
+    {
+        sender_name= it ->username;
+    }
     string msg(buffer);
     msg += "\n";
     sender_name += " ]  :";
     sender_name = '['+sender_name;
     msg = sender_name + msg;
-    for(const auto&sock:client){
-        if(sock.socet!=socket){
-            send(sock.socet, msg.c_str(), msg.size(), 0);
-            }
+    for(const auto&sock:copyclient)
+    {
+        if(sock.socket!=socket)
+        {
+            send(sock.socket, msg.c_str(), msg.size(), 0);
         }
     }
-void pryem_sms(int socket,vector<clientinfo>& client)
+}
+void handle_client(int socket,vector<ClientInfo>& client)
 {
     char buffer[1024];
     while(true)
@@ -52,9 +94,10 @@ void pryem_sms(int socket,vector<clientinfo>& client)
             cout << "Клиент отключился.\n";
             {
                 lock_guard<mutex> lock(clients_mutex);
-                auto it = find_if(client.begin(), client.end(), [socket](const clientinfo& c) {
-                    return c.socet == socket;
-                    });
+                auto it = find_if(client.begin(), client.end(), [socket](const ClientInfo& c) 
+                {
+                    return c.socket == socket;
+                });
                 if (it != client.end())
                 {
                     // 3. Удаляем элемент по найденному итератору
@@ -63,44 +106,55 @@ void pryem_sms(int socket,vector<clientinfo>& client)
             }
             break; 
         }
+        string command(buffer, 10);
+        if (command.starts_with("/w"))
+        {
+            string cmd,username,sms;
+            stringstream ss(buffer);
+            if (ss>>cmd>>username&&getline(ss,sms))
+            {
+                w(sms,client,socket,username);
+            }
+                
+        }
         else
         {
             cout<<"user"<<socket<<" : "<<buffer<<"\n";
-            rassylka(buffer,client,socket);
+            broadcast(buffer,client,socket);
         }
     }
 }
-void soedinenie(int client_socket,vector<clientinfo>&client,string username)
+void soedinenie(int client_socket,vector<ClientInfo>&client,string username)
 {
     {
         lock_guard<mutex> lock(clients_mutex);
         client.push_back({client_socket,username});
     }
-    thread msg(pryem_sms,client_socket,ref(client));
+    thread msg(handle_client,client_socket,ref(client));
     msg.detach();
     cout << "Клиент подключился!" << endl;
 }
-void registracyja(int client_socet,vector<clientinfo>&client)
+void handle_auth(int client_socet,vector<ClientInfo>&client)
 {
     char buffer [1024];
     bool login=true;
     while(login)
     {
         memset(buffer, 0, sizeof(buffer));
-        int baeyt=recv(client_socet,buffer,sizeof(buffer) -1,0);
-        if (baeyt>0)
+        int bytes_received=recv(client_socet,buffer,sizeof(buffer) -1,0);
+        if (bytes_received>0)
         {
             string msg(buffer);
             if (msg=="/reg")
             {
-                string otwet="<usernamy> <password> <password>\n";
-                send(client_socet,otwet.c_str(),otwet.size(),0);
+                string response="<usernamy> <password> <password>\n";
+                send(client_socet,response.c_str(),response.size(),0);
                 char buffer2[1024];
-                int baeyt2=recv(client_socet,buffer2,sizeof(buffer2) -1,0);
-                if (baeyt2>0)
+                int bytes_received2=recv(client_socet,buffer2,sizeof(buffer2) -1,0);
+                if (bytes_received2>0)
                 { 
-                    string dany(buffer2,baeyt2);
-                    stringstream ss(dany);
+                    string input_data(buffer2,bytes_received2);
+                    stringstream ss(input_data);
                     
                     string username, pass1, pass2;
                  // Считываем данные по очереди
@@ -111,40 +165,55 @@ void registracyja(int client_socet,vector<clientinfo>&client)
                         {
                             cout << "Успех! Ник: " << username << ", Пароль: " << pass1 << endl;
                             insert_data("user", username, pass1);
-                            string otwet ="waszy danye sohraneny";
-                            send(client_socet,otwet.c_str(),otwet.size(),0);
+                            string response ="waszy input_datae sohraneny";
+                            send(client_socet,response.c_str(),response.size(),0);
                             soedinenie(client_socet, client,username);
                             login=false;
                         }
                         else if(pass1!=pass2)
                         {
-                            string oszybka ="paroli dolrzny sowpadat";
-                            send(client_socet,oszybka.c_str(),oszybka.size(),0);
+                            string error_msg ="paroli dolrzny sowpadat";
+                            send(client_socet,error_msg.c_str(),error_msg.size(),0);
                         }
                     }   
                     else 
                     {
                         // Ошибка: слов в строке оказалось меньше, чем нужно
-                        string oszybka ="<usernamy> <password> <password>\n";
-                        send(client_socet,oszybka.c_str(),oszybka.size(),0);
+                        string error_msg ="<usernamy> <password> <password>\n";
+                        send(client_socet,error_msg.c_str(),error_msg.size(),0);
                         cout << "Ошибка разделения: не хватает данных!" << endl;
                     }
                 }
             }
             else if(msg=="/log")
             {
-                string otwet="<usernamy> <password>\n";
-                send(client_socet,otwet.c_str(),otwet.size(),0);
+                string response="<usernamy> <password>\n";
+                send(client_socet,response.c_str(),response.size(),0);
                 char buffer2[1024];
-                int baeyt2=recv(client_socet,buffer2,sizeof(buffer2) -1,0);
-                if (baeyt2>0)
+                int bytes_received2=recv(client_socet,buffer2,sizeof(buffer2) -1,0);
+                if (bytes_received2>0)
                 { 
-                    string dany(buffer2,baeyt2);
-                    stringstream ss(dany);
-                    
+                    string input_data(buffer2,bytes_received2);
+                    stringstream ss(input_data);
                     string username, pass;
-                 // Считываем данные по очереди
-                    if (ss >> username >> pass) 
+                    bool razdel = false;
+                    if (ss >> username >> pass)
+                    {
+                        razdel=true;
+                    }
+                    bool is_already_online=false;
+                    if (razdel)
+                    {
+                        {
+                            lock_guard<mutex> lock(clients_mutex);
+                            auto it=find_if(client.begin(),client.end(),[&username](const ClientInfo c)
+                            {
+                                return c.username==username;
+                            });
+                            if(it!=client.end()) is_already_online=true;
+                        }
+                    }
+                    if (!is_already_online) 
                     {
                         sqlite3_stmt* stmt = nullptr;
                         sqlite3* db = nullptr;
@@ -158,7 +227,11 @@ void registracyja(int client_socet,vector<clientinfo>&client)
                             soedinenie(client_socet, ref(client),username);
                             login=false;
                         }
-                        else 
+                        if(is_already_online){
+                            string respone="Этот пользователь уже в сети\n";
+                            send(client_socet,respone.c_str(),respone.size(),0);
+                        }
+                        else if(!razdel)
                         {
                             string sms1232="неверный логин или пароль\n";
                             send(client_socet,sms1232.c_str(),sms1232.size(),0);
@@ -166,17 +239,22 @@ void registracyja(int client_socet,vector<clientinfo>&client)
                         sqlite3_finalize(stmt);
                         sqlite3_close(db);
                     }
+                    if(is_already_online)
+                    {
+                        string respone="Этот пользователь уже в сети\n";
+                        send(client_socet,respone.c_str(),respone.size(),0);
+                    }
                 }
             }
             if(login)
             {
-                string otwet="reg/log";
-                send(client_socet,otwet.c_str(),otwet.size(),0);
+                string response="\nreg/log";
+                send(client_socet,response.c_str(),response.size(),0);
             }
         }
     }
 }
-void podkluczenie(vector<clientinfo>&client,int serverfd)
+void podkluczenie(vector<ClientInfo>&client,int serverfd)
 {
     if (listen(serverfd, 5) < 0) 
     {
@@ -189,7 +267,7 @@ void podkluczenie(vector<clientinfo>&client,int serverfd)
         int client_socket = accept(serverfd, nullptr, nullptr);
         std::string response = "reg/log\n";
         send(client_socket, response.c_str(), response.size(), 0);
-        thread reg(registracyja,client_socket,ref(client));
+        thread reg(handle_auth,client_socket,ref(client));
         reg.detach();
     }
 }
@@ -205,7 +283,7 @@ int main()
     // 3. Подключаем аппарат к розетке
     bind(server_fd, (struct sockaddr*)&address, sizeof(address));
     // 4. Переводим в режим "жду звонка"
-    vector<clientinfo>clients;
+    vector<ClientInfo>clients;
     thread prosluszka(podkluczenie,ref(clients),server_fd);
     prosluszka.detach();
     //close(clients);

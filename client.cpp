@@ -45,7 +45,6 @@ int main() {
 
     // Основной цикл отправки сообщений
     while (true) {
-        cout << "Ты: ";
         string message;
         getline(cin, message);
 

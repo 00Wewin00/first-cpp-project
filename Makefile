@@ -1,6 +1,6 @@
 CXX = g++
 # Оставили только стандарт, без лишних предупреждений
-CXXFLAGS = -std=c++17 -g
+CXXFLAGS = -std=c++20 -g
 
 all: server client
 
